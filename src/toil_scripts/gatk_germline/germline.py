@@ -106,13 +106,7 @@ def gatk_germline_pipeline(job, uuid, url, config, rg_line=None):
 
     get_bai.addFollowOn(haplotype_caller)
 
-    annotations = ['QualByDepth', 'FisherStrand', 'StrandOddsRatio', 'ReadPosRankSumTest',
-                   'MappingQualityRankSumTest', 'RMSMappingQuality']
-    annotate = job.wrapJobFn(gatk_variant_annotator, get_bam.rv(), get_bai.rv(),
-                             haplotype_caller.rv(), annotations, config)
-
-    haplotype_caller.addChild(annotate)
-    return annotate.rv()
+    return haplotype_caller.rv()
 
 
 def download_shared_files(job, config):
@@ -207,6 +201,7 @@ def gatk_haplotype_caller(job, bam_id, bai_id, config, annotations=None):
                 outputs=outputs, mock=config['mock_mode'])
 
     return job.fileStore.writeGlobalFile(os.path.join(work_dir, 'output.gvcf'))
+
 
 def gatk_variant_annotator(job, bam_id, bai_id, vcf_id, annotations, config):
     """

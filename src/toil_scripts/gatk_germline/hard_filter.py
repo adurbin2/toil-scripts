@@ -2,10 +2,11 @@
 from __future__ import print_function
 import os
 
+from vqsr import gatk_genotype_gvcf
 from toil_scripts.lib.programs import docker_call
 from toil_scripts.lib.files import upload_or_move_job, get_files_from_filestore
 
-def hard_filter_pipeline(job, uuid, vcf_id, config):
+def hard_filter_pipeline(job, uuid, gvcf_id, config):
     """
     Runs GATK Hard Filtering on HaplotypeCaller output
 
@@ -15,14 +16,19 @@ def hard_filter_pipeline(job, uuid, vcf_id, config):
     :param config:
     :return:
     """
+
     job.fileStore.logToMaster('Running Hard Filter on {}'.format(uuid))
-    select_snps = job.wrapJobFn(gatk_select_variants, 'SNP', vcf_id, config)
+    genotype_gvcf = job.wrapJobFn(gatk_genotype_gvcf, dict(uuid=gvcf_id), config)
+    select_snps = job.wrapJobFn(gatk_select_variants, 'SNP',
+                                genotype_gvcf.rv(), config)
     snp_filter = job.wrapJobFn(apply_filter, 'SNP', select_snps.rv(), config)
-    select_indels = job.wrapJobFn(gatk_select_variants, 'INDEL', vcf_id, config)
+    select_indels = job.wrapJobFn(gatk_select_variants, 'INDEL',
+                                  genotype_gvcf.rv(), config)
     indel_filter = job.wrapJobFn(apply_filter, 'INDEL', select_indels.rv(), config)
 
-    job.addChild(select_snps)
-    job.addChild(select_indels)
+    job.addChild(genotype_gvcf)
+    genotype_gvcf.addChild(select_snps)
+    genotype_gvcf.addChild(select_indels)
     select_snps.addChild(snp_filter)
     select_indels.addChild(indel_filter)
 
@@ -30,7 +36,7 @@ def hard_filter_pipeline(job, uuid, vcf_id, config):
     raw_filename = '%s_raw_variants%s.vcf' % (uuid, config['suffix'])
     snp_filename = '%s_filtered_snps%s.vcf' % (uuid, config['suffix'])
     indel_filename = '%s_filtered_indels%s.vcf' % (uuid, config['suffix'])
-    output_raw = job.wrapJobFn(upload_or_move_job, raw_filename, vcf_id, output_dir=output_dir,
+    output_raw = job.wrapJobFn(upload_or_move_job, raw_filename, gvcf_id, output_dir=output_dir,
                                ssec=config['ssec'])
     job.addChild(output_raw)
     output_snps = job.wrapJobFn(upload_or_move_job, snp_filename, snp_filter.rv(),

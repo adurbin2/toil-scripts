@@ -87,6 +87,9 @@ def generate_config():
         # Optional: (string) Path to output directory
         output_dir:
 
+        # Optional:
+        HC_annotations:
+
         # Optional: (boolean) Set to True to allow seq dict incompatibility
         unsafe_mode:
 
