@@ -34,17 +34,11 @@ def generate_config():
         # Optional: (boolean) Run BWA on fastqs
         run_bwa:
 
-        # Optional: (boolean) Run GATK Preprocessing
-        preprocess:
-
-        # Optional: (boolean) Run GATK VQSR
-        run_vqsr:
-
-        # Optional: If true, sorts bam
+        # Optional: If true, BWA sorts bam
         sort: True
 
-        # Optional. If true, trims adapters
-        trim: false
+        # Optional. If true, BWA trims adapters
+        trim: True
 
         # Optional: Reference fasta file (amb) -- if not present will be generated
         amb: s3://cgl-pipeline-inputs/alignment/hg19.fa.amb
@@ -70,10 +64,21 @@ def generate_config():
         # Optional: Alternate file for reference build (alt). Necessary for alt aware alignment
         alt:
 
+        # Optional: (boolean) Run GATK Preprocessing
+        preprocess:
+
+        # Optional: (boolean) Run GATK VQSR
+        run_vqsr:
+
+        # Optional: (boolean) Run Oncotator on Variants
+        run_oncotator:
+
+        # Optional: Oncotator Database
+        oncotator_index:
+
         # Optional: Synapse account and password
         synapse_id:
         synapse_pwd:
-
 
         # Required: Approximate input file size. Provided as a number followed by (base-10) [TGMK]. E.g. 10M, 150G
         file-size: 50G
@@ -87,7 +92,7 @@ def generate_config():
         # Optional: (string) Path to output directory
         output_dir:
 
-        # Optional:
+        # Optional: HaplotypeCaller Annotations
         HC_annotations:
 
         # Optional: (boolean) Set to True to allow seq dict incompatibility

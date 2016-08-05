@@ -87,22 +87,17 @@ def run_samtools_index(job, bam_id):
 
 def samtools_view(job, bam_id, flag='0', mock=False):
     """
-    Outputs bam file using a samtools view flag value
-    :param job: Job instance
-    :param bamFileStoreID str: bam fileStoreID
-    :param flag str: samtools defined flags
-    :param mock bool: If True, run in mock mode
-    :return str: bam fileStoreID
+    Filters BAM file using SAM bitwise flag
 
-    '0x800'
+    :param bam_id str: BAM FileStoreID
+    :param flag str: SAM bitwise flags
+    :param mock bool: If True, run in mock mode
+    :return str: BAM fileStoreID
     """
     work_dir = job.fileStore.getLocalTempDir()
-    job.fileStore.readGlobalFile(bam_id, os.path.join(work_dir, 'sample.bam'))
-    outputs = {'sample.output.bam': None}
-    outpath = os.path.join(work_dir, 'sample.output.bam')
-
+    job.fileStore.readGlobalFile(bam_id, os.path.join(work_dir, 'input.bam'))
+    outputs = {'output.bam': None}
     cores = multiprocessing.cpu_count()
-
     command = ['view',
                '-b',
                '-o', '/data/sample.output.bam',
@@ -113,6 +108,7 @@ def samtools_view(job, bam_id, flag='0', mock=False):
                 tool='quay.io/ucsc_cgl/samtools:1.3--256539928ea162949d8a65ca5c79a72ef557ce7c',
                 outputs=outputs,
                 mock=mock)
+    outpath = os.path.join(work_dir, 'output.bam')
     return job.fileStore.writeGlobalFile(outpath)
 
 
@@ -140,17 +136,14 @@ def picard_sort_sam(job, bam_id, xmx='8G', mock=False):
     """
     Uses picardtools SortSam to sort a sample bam file
 
-    :param job:
-    :param bam_id:
-    :param config:
-    :param xmx:
-    :return:
+    :param bam_id str: BAM FileStoreID
+    :param xmx: Java memory allocation
+    :return: Processed BAM and BAI FileStoreIDs
+    :rtype: tuple
     """
     work_dir = job.fileStore.getLocalTempDir()
     outputs={'sample.sorted.bam': None, 'sample.sorted.bai': None}
     job.fileStore.readGlobalFile(bam_id, os.path.join(work_dir, 'sample.bam'))
-
-    #Call: picardtools
     command = ['SortSam',
                'INPUT=sample.bam',
                'OUTPUT=sample.sorted.bam',
@@ -160,7 +153,6 @@ def picard_sort_sam(job, bam_id, xmx='8G', mock=False):
                 env={'_JAVA_OPTIONS':'-Djava.io.tmpdir=/data/ -Xmx{}'.format(xmx)},
                 tool='quay.io/ucsc_cgl/picardtools:1.95--dd5ac549b95eb3e5d166a5e310417ef13651994e',
                 outputs=outputs, mock=mock)
-
     outpath_bam = os.path.join(work_dir, 'sample.sorted.bam')
     outpath_bai = os.path.join(work_dir, 'sample.sorted.bai')
     bam_id = job.fileStore.writeGlobalFile(outpath_bam)
@@ -172,10 +164,11 @@ def picard_mark_duplicates(job, bam_id, bai_id, xmx='10G', mock=False):
     """
     Runs picardtools MarkDuplicates. Assumes the bam file is coordinate sorted.
 
-    :param bam_id: bam file store ID
-    :param bai_id: bam.bai file store ID
-    :param xmx: memory allocation for _JAVA_OPTIONS
-    :return: mdup bam file store ID, mdup bam.bai file store ID
+    :param bam_id: BAM FileStoreID
+    :param bai_id: BAI FileStoreID
+    :param xmx: Java memory allocation
+    :return: Processed BAM and BAI FilestoreIDs
+    :rtype: tuple
     """
     work_dir = job.fileStore.getLocalTempDir()
     outputs={'sample.mkdups.bam': None, 'sample.mkdups.bai': None}
@@ -201,6 +194,7 @@ def picard_mark_duplicates(job, bam_id, bai_id, xmx='10G', mock=False):
     bam_id = job.fileStore.writeGlobalFile(outpath_bam)
     bai_id = job.fileStore.writeGlobalFile(outpath_bai)
     return bam_id, bai_id
+
 
 def run_preprocessing(job, cores, bam, bai, ref, ref_dict, fai, phase, mills, dbsnp,
                       mem='10G', unsafe=False):
@@ -256,6 +250,7 @@ def run_germline_preprocessing(job, cores, bam, bai, ref, ref_dict, fai, phase, 
     """
     rm_secondary = job.wrapJobFn(samtools_view, bam, flag='0x800', mock=mock)
     picard_sort = job.wrapJobFn(picard_sort_sam, rm_secondary.rv(), xmx=mem, mock=mock)
+    # MarkDuplicates runs best when Xmx <= 10G
     mdups_mem = '{}G'.format(min(10, int(mem[:-1])))
     mdups = job.wrapJobFn(picard_mark_duplicates, picard_sort.rv(0), picard_sort.rv(1),
                           xmx=mdups_mem, mock=mock)
@@ -289,7 +284,7 @@ def run_germline_preprocessing(job, cores, bam, bai, ref, ref_dict, fai, phase, 
 def run_realigner_target_creator(job, cores, bam, bai, ref, ref_dict, fai, phase, mills, mem,
                                  unsafe=False, mock=False):
     """
-    Creates intervals file needed for indel realignment
+    Creates intervals file needed for INDEL realignment
 
     :param JobFunctionWrappingJob job: passed automatically by Toil
     :param int cores: Maximum number of cores on a worker node
@@ -393,6 +388,7 @@ def run_base_recalibration(job, cores, indel_bam, indel_bai, ref, ref_dict, fai,
     :param str fai: Reference index FileStoreID
     :param str dbsnp: DBSNP VCF FileStoreID
     :param str mem: Memory value to be passed to children. Needed for CI tests
+    :param str bqsr: BQSR recalibration table FileStoreID
     :param bool unsafe: If True, runs gatk UNSAFE mode: "-U ALLOW_SEQ_DICT_INCOMPATIBILITY"
     :return: FileStoreID for the processed bam
     :rtype: str

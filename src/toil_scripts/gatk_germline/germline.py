@@ -25,32 +25,6 @@ from toil_scripts.tools.preprocessing import run_samtools_faidx, \
     run_samtools_index
 
 
-def setup_and_run_bwa_kit(job, url, config):
-    job.fileStore.logToMaster("Aligning sample: {}".format(config['uuid']))
-
-    # Download fastq files
-    fq1 = job.addChildJobFn(download_url_job, url, name='toil.1.fq', syn=config['syn'],
-                            s3_key_path=config['ssec'])
-    # Assumes second fastq url is identical
-    fq2_url = url.replace('1.fq', '2.fq')
-    fq2 = job.addChildJobFn(download_url_job, fq2_url, name='toil.2.fq', syn=config['syn'],
-                            s3_key_path=config['ssec'])
-
-    # run_bwakit requires a Namespace object
-    bwa_config = argparse.Namespace()
-    bwa_config.r1 = fq1.rv()
-    bwa_config.r2 = fq2.rv()
-    bwa_config.ref = config['genome.fa']
-    bwa_config.fai = config['genome.fa.fai']
-    keys = ['uuid', 'amb', 'ann', 'bwt', 'pac', 'sa', 'alt', 'rg_line']
-    for key in keys:
-        setattr(bwa_config, key, config[key])
-
-    cores = multiprocessing.cpu_count()
-    return job.addFollowOnJobFn(run_bwakit, bwa_config, cores, sort=config['sort'],
-                                trim=config['trim']).rv()
-
-
 def gatk_germline_pipeline(job, uuid, url, config, rg_line=None):
     """
     Runs GATK Germline Pipeline on a single sample. Writes gvcf and vqsr.vcf to output directory.
@@ -64,14 +38,14 @@ def gatk_germline_pipeline(job, uuid, url, config, rg_line=None):
     config['uuid'] = uuid
     config['rg_line'] = rg_line
 
+    cores = multiprocessing.cpu_count()
+    # Determine how much RAM is available
     if config ['xmx'] is None:
         config['xmx'] = '{}G'.format(os.sysconf('SC_PAGE_SIZE') * os.sysconf('SC_PHYS_PAGES') /
                                      (1024 ** 3))
 
 
-    cores = multiprocessing.cpu_count()
-
-    # Determine extension on file
+    # Determine extension on input file
     base, ext1 = os.path.splitext(url)
     _, ext2 = os.path.splitext(base)
 
@@ -105,7 +79,6 @@ def gatk_germline_pipeline(job, uuid, url, config, rg_line=None):
         haplotype_caller = job.wrapJobFn(gatk_haplotype_caller, get_bam.rv(), get_bai.rv(), config)
 
     get_bai.addFollowOn(haplotype_caller)
-
     return haplotype_caller.rv()
 
 
@@ -150,6 +123,32 @@ def reference_preprocessing(job, config, mock=False):
     return config
 
 
+def setup_and_run_bwa_kit(job, url, config):
+    job.fileStore.logToMaster("Aligning sample: {}".format(config['uuid']))
+
+    # Download fastq files
+    fq1 = job.addChildJobFn(download_url_job, url, name='toil.1.fq', syn=config['syn'],
+                            s3_key_path=config['ssec'])
+    # Assumes second fastq url is identical
+    fq2_url = url.replace('1.fq', '2.fq')
+    fq2 = job.addChildJobFn(download_url_job, fq2_url, name='toil.2.fq', syn=config['syn'],
+                            s3_key_path=config['ssec'])
+
+    # run_bwakit requires a Namespace object
+    bwa_config = argparse.Namespace()
+    bwa_config.r1 = fq1.rv()
+    bwa_config.r2 = fq2.rv()
+    bwa_config.ref = config['genome.fa']
+    bwa_config.fai = config['genome.fa.fai']
+    keys = ['uuid', 'amb', 'ann', 'bwt', 'pac', 'sa', 'alt', 'rg_line']
+    for key in keys:
+        setattr(bwa_config, key, config[key])
+
+    cores = multiprocessing.cpu_count()
+    return job.addFollowOnJobFn(run_bwakit, bwa_config, cores, sort=config['sort'],
+                                trim=config['trim']).rv()
+
+
 def gatk_haplotype_caller(job, bam_id, bai_id, config, annotations=None):
     """
     Uses GATK HaplotypeCaller to identify SNPs and Indels and writes a gVCF.
@@ -186,8 +185,9 @@ def gatk_haplotype_caller(job, bam_id, bai_id, config, annotations=None):
         command = ['-U', 'ALLOW_SEQ_DICT_INCOMPATIBILITY'] + command
 
     if annotations is None:
-        annotations = ['QualByDepth', 'FisherStrand', 'StrandOddsRatio', 'ReadPosRankSumTest',
-                       'MappingQualityRankSumTest', 'RMSMappingQuality']
+        annotations = ['QualByDepth', 'FisherStrand', 'StrandOddsRatio',
+                       'ReadPosRankSumTest', 'MappingQualityRankSumTest',
+                       'RMSMappingQuality']
 
     for annotation in annotations:
         command.extend(['-A', annotation])
@@ -199,51 +199,7 @@ def gatk_haplotype_caller(job, bam_id, bai_id, config, annotations=None):
                 tool = 'quay.io/ucsc_cgl/gatk:3.5--dba6dae49156168a909c43330350c6161dc7ecc2',
                 inputs=inputs.keys(),
                 outputs=outputs, mock=config['mock_mode'])
-
     return job.fileStore.writeGlobalFile(os.path.join(work_dir, 'output.gvcf'))
-
-
-def gatk_variant_annotator(job, bam_id, bai_id, vcf_id, annotations, config):
-    """
-
-    :param job:
-    :param bam_id:
-    :param bai_id:
-    :param vcf_id:
-    :param annotations:
-    :param config:
-    :return:
-    """
-    job.fileStore.logToMaster('Running GATK VariantAnnotator: {}'.format(config['uuid']))
-    work_dir = job.fileStore.getLocalTempDir()
-    references = ['genome.fa', 'genome.fa.fai', 'genome.dict']
-    inputs = {key: config[key] for key in references}
-    inputs['input.bam'] = bam_id
-    inputs['input.bam.bai'] = bai_id
-    inputs['input.vcf'] = vcf_id
-    get_files_from_filestore(job, work_dir, inputs)
-
-    # Call GATK -- HaplotypeCaller
-    command = ['-R', 'genome.fa',
-               '-T', 'VariantAnnotator',
-               '-I', 'input.bam',
-               '-V', 'input.vcf',
-               '-o', 'output.vcf']
-
-    for annotation in annotations:
-        command.extend(['-A', annotation])
-
-    if config['unsafe_mode']:
-        command = ['-U', 'ALLOW_SEQ_DICT_INCOMPATIBILITY'] + command
-
-    outputs={'output.vcf': None}
-    docker_call(work_dir = work_dir,
-                env={'_JAVA_OPTIONS':'-Djava.io.tmpdir=/data/ -Xmx{}'.format(config['xmx'])},
-                parameters = command,
-                tool = 'quay.io/ucsc_cgl/gatk:3.5--dba6dae49156168a909c43330350c6161dc7ecc2',
-                inputs=inputs.keys(),
-                outputs=outputs, mock=config['mock_mode'])
-    return job.fileStore.writeGlobalFile(os.path.join(work_dir, 'output.vcf'))
 
 
 def parse_manifest(path_to_manifest):
@@ -271,7 +227,8 @@ def parse_manifest(path_to_manifest):
                 else:
                     msg = 'Bad manifest format!\n{}'.format(sample)
                     raise ValueError(msg)
-                require(urlparse(url).scheme and urlparse(url), 'Invalid URL passed for {}'.format(url))
+                require(urlparse(url).scheme and urlparse(url),
+                        'Invalid URL passed for {}'.format(url))
                 samples.append([uuid, url, rg_line])
     return samples
 

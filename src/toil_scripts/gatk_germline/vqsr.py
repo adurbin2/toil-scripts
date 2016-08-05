@@ -9,43 +9,29 @@ from toil_scripts.lib.files import upload_or_move_job, get_files_from_filestore
 
 def vqsr_pipeline(job, gvcfs, config):
     """
-    Takes a dictionary of gvcfs and returns a dictionary of vqsr filtered vcfs
+    Takes a dictionary of gvcfs and performs VQSR. Returns filtered vcf
 
     :param gvcfs:
     :param config:
     :return:
     """
     genotype_gvcf = job.wrapJobFn(gatk_genotype_gvcf, gvcfs, config)
-    job.addFollowOn(genotype_gvcf)
-
     snp_recal = job.wrapJobFn(gatk_variant_recalibrator_snp, genotype_gvcf.rv(), config)
     indel_recal = job.wrapJobFn(gatk_variant_recalibrator_indel, genotype_gvcf.rv(), config)
+    apply_snp_recal = job.wrapJobFn(gatk_apply_variant_recalibration_snp, genotype_gvcf.rv(),
+                                    snp_recal.rv(0), snp_recal.rv(1), config)
+    apply_indel_recal = job.wrapJobFn(gatk_apply_variant_recalibration_indel, apply_snp_recal.rv(),
+                                      indel_recal.rv(), indel_recal.rv(), config)
+
+    job.addFollowOn(genotype_gvcf)
     genotype_gvcf.addChild(snp_recal)
     genotype_gvcf.addChild(indel_recal)
-
-    vqsr_vcfs = {}
-    for uuid, vcf_id in gvcfs.iteritems():
-        vqsr_vcfs[uuid] = genotype_gvcf.addFollowOnJobFn(run_vqsr_pipeline, uuid, vcf_id,
-                                                         snp_recal.rv(), indel_recal.rv(),
-                                                         config).rv()
-    return vqsr_vcfs
-
-
-def run_vqsr_pipeline(job, uuid, vcf_id, snp_data, indel_data, config):
-    snp_recal, snp_tranch = snp_data
-    indel_recal, indel_tranch = indel_data
-    apply_snp_recal = job.wrapJobFn(gatk_apply_variant_recalibration_snp, vcf_id,
-                                    snp_recal, snp_tranch, config)
-    apply_indel_recal = job.wrapJobFn(gatk_apply_variant_recalibration_indel, apply_snp_recal.rv(),
-                                      indel_recal, indel_tranch, config)
-
-
-    output_dir = os.path.join(config['output_dir'], uuid, config['suffix'])
-    vqsr_name = '{}.vqsr{}.vcf'.format(uuid, config['suffix'])
-    output_vqsr = job.wrapJobFn(upload_or_move_job, vqsr_name, apply_indel_recal.rv(), output_dir)
-
     job.addFollowOn(apply_snp_recal)
     apply_snp_recal.addFollowOn(apply_indel_recal)
+    output_dir = os.path.join(config['output_dir'])
+    vqsr_name = 'joint.vqsr{}.vcf'.format(config['suffix'])
+    output_vqsr = job.wrapJobFn(upload_or_move_job, vqsr_name, apply_indel_recal.rv(),
+                                output_dir)
     apply_indel_recal.addChild(output_vqsr)
     return apply_indel_recal.rv()
 
