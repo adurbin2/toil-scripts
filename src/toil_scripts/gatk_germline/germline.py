@@ -3,36 +3,85 @@ from __future__ import print_function
 import argparse
 import multiprocessing
 import os
-import yaml
-import synapseclient
-
 from copy import deepcopy
-from urlparse import urlparse
-from bd2k.util.processes import which
-from germline_config import generate_config, generate_manifest
-from vqsr import vqsr_pipeline
-from hard_filter import hard_filter_pipeline
 
+import synapseclient
+from bd2k.util.processes import which
+from bd2k.util.humanize import human2bytes
 from toil.job import Job
+from urlparse import urlparse
+import yaml
+
+from toil_scripts.gatk_germline.germline_config import generate_config, generate_manifest
+from toil_scripts.gatk_germline.hard_filter import hard_filter_pipeline
+from toil_scripts.gatk_germline.vqsr import vqsr_pipeline
 from toil_scripts.lib import require
-from toil_scripts.lib.urls import download_url_job
+from toil_scripts.lib.files import get_files_from_filestore, upload_or_move_job
 from toil_scripts.lib.programs import docker_call
-from toil_scripts.lib.files import get_files_from_filestore
+from toil_scripts.lib.urls import download_url_job
 from toil_scripts.rnaseq_cgl.rnaseq_cgl_pipeline import generate_file
 from toil_scripts.tools.aligners import run_bwakit
-from toil_scripts.tools.preprocessing import run_samtools_faidx, \
-    run_picard_create_sequence_dictionary, run_germline_preprocessing, \
-    run_samtools_index
+from toil_scripts.tools.preprocessing import run_germline_preprocessing, \
+    run_samtools_faidx, run_samtools_index, run_samtools_sort, picard_sort_sam, \
+    run_picard_create_sequence_dictionary
+
+
+def run_pipeline(job, samples, config):
+    """
+    Configures and runs GATK Germline pipeline
+    
+    :param samples list: List of tuples (uuid, url, rg_line) for joint variant calling.
+                         (i.e. samples are grouped together for VQSR). Otherwise,
+                         samples are filtered using GATK recommended hard filters.
+    :param config dict: Input parameters and reference files
+    :return: None
+
+    VQSR and filtering is done if the run_vqsr parameter is set to True. Otherwise, each sample
+    will be hard filtered using recommended GATK parateters.
+    """
+    get_shared_files = Job.wrapJobFn(download_shared_files, config).encapsulate()
+    # Pass config dictionary to reference preprocessing
+    get_references = Job.wrapJobFn(reference_preprocessing, get_shared_files.rv(),
+                                   mock=config['mock_mode']).encapsulate()
+
+    # Run after shared files have been downloaded
+    job.addChild(get_shared_files)
+    get_shared_files.addChild(get_references)
+    # Node to batch each sample job
+    batch = Job()
+    get_references.addChild(batch)
+    # Generate per sample gvcfs {uuid: gvcf_id}
+    gvcfs = {}
+    for uuid, url, rg_line in samples:
+        # get_references.rv() returns an updated version of config
+        gvcfs[uuid] = batch.addChildJobFn(gatk_germline_pipeline, uuid, url,
+                                           get_references.rv(), rg_line=rg_line).rv()
+
+    if config['run_vqsr'] or len(gvcfs) > 30:
+        vqsr_vcf = batch.addFollowOnJobFn(vqsr_pipeline, gvcfs, get_references.rv())
+
+    else:
+        for uuid, gvcf in gvcfs.iteritems():
+            batch.addFollowOnJobFn(hard_filter_pipeline, uuid, gvcf, get_references.rv())
 
 
 def gatk_germline_pipeline(job, uuid, url, config, rg_line=None):
     """
-    Runs GATK Germline Pipeline on a single sample. Writes gvcf and vqsr.vcf to output directory.
+    Runs GATK Germline Pipeline on a single sample. Writes gvcf to output directory
+    defined in the config dictionary.
+
+    0: Align FASTQ or Download Bam
+    1: Generate BAI
+    2: GATK Preprocessing (Optional)
+    3: GATK HaplotypeCaller
+    4: Write GVCF to output directory
 
     :param job: Toil Job instance
     :param uuid str: Unique identifier for the sample
     :param url str: URL to sample bam or fq file
     :param config dict: Configuration options for pipeline
+    :param rg_line str|None: RG line for BWA alignment. Necessary for downstream steps.
+    :rtype str: GVCF FileStoreID
     """
     config = deepcopy(config)
     config['uuid'] = uuid
@@ -41,9 +90,8 @@ def gatk_germline_pipeline(job, uuid, url, config, rg_line=None):
     cores = multiprocessing.cpu_count()
     # Determine how much RAM is available
     if config ['xmx'] is None:
-        config['xmx'] = '{}G'.format(os.sysconf('SC_PAGE_SIZE') * os.sysconf('SC_PHYS_PAGES') /
-                                     (1024 ** 3))
-
+        config['xmx'] = os.sysconf('SC_PAGE_SIZE') * os.sysconf('SC_PHYS_PAGES')
+    config['xmx'] = human2bytes(config['xmx'])
 
     # Determine extension on input file
     base, ext1 = os.path.splitext(url)
@@ -57,19 +105,22 @@ def gatk_germline_pipeline(job, uuid, url, config, rg_line=None):
         get_bam = job.wrapJobFn(download_url_job, url, name='toil.bam',
                                 s3_key_path=config['ssec']).encapsulate()
     else:
-        raise ValueError('Could not determine file type from URL:\n{}'.format(url))
+        raise ValueError('Accepted formats: FASTQ or BAM\n'
+                         'Could not determine {} file type from URL:\n{}'.format(uuid, url))
 
-    get_bai = job.wrapJobFn(run_samtools_index, get_bam.rv())
+    sort_bam = job.wrapJobFn(picard_sort_sam, get_bam.rv(), xmx=config['xmx'])
+    get_bai = job.wrapJobFn(run_samtools_index, sort_bam.rv())
 
     job.addChild(get_bam)
-    get_bam.addChild(get_bai)
+    get_bam.addChild(sort_bam)
+    sort_bam.addChild(get_bai)
 
     if config['preprocess']:
-        job.fileStore.logToMaster('Preprocessing sample: {}'.format(uuid))
-        preprocess = job.wrapJobFn(run_germline_preprocessing, cores, get_bam.rv(), get_bai.rv(),
+        preprocess = job.wrapJobFn(run_germline_preprocessing, cores, uuid,
+                                   get_bam.rv(), get_bai.rv(),
                                    config['genome.fa'], config['genome.dict'],
-                                   config['genome.fa.fai'], config['phase.vcf'],
-                                   config['mills.vcf'], config['dbsnp.vcf'],
+                                   config['genome.fa.fai'], config['phase'],
+                                   config['mills'], config['dbsnp'],
                                    mem=config['xmx'], mock=config['mock_mode']).encapsulate()
         get_bai.addChild(preprocess)
         haplotype_caller = job.wrapJobFn(gatk_haplotype_caller, preprocess.rv(0), preprocess.rv(1),
@@ -79,6 +130,11 @@ def gatk_germline_pipeline(job, uuid, url, config, rg_line=None):
         haplotype_caller = job.wrapJobFn(gatk_haplotype_caller, get_bam.rv(), get_bai.rv(), config)
 
     get_bai.addFollowOn(haplotype_caller)
+    output_dir = os.path.join(config['output_dir'], uuid)
+    vqsr_name = '{}.raw{}.gvcf'.format(uuid, config['suffix'])
+    output_gvcf = job.wrapJobFn(upload_or_move_job, vqsr_name, haplotype_caller.rv(),
+                                output_dir)
+    haplotype_caller.addChild(output_gvcf)
     return haplotype_caller.rv()
 
 
@@ -90,11 +146,13 @@ def download_shared_files(job, config):
     :return dict: updated config dictionary with shared fileStoreIDS
     """
     job.fileStore.logToMaster('Downloading shared reference files')
-    reference_names = ['genome.fa', 'phase.vcf', 'mills.vcf', 'dbsnp.vcf', 'hapmap.vcf', 'omni.vcf']
+    reference_names = ['genome.fa', 'phase', 'mills', 'dbsnp', 'hapmap', 'omni']
     if config['run_bwa']:
-        bwa_references = ['amb', 'ann', 'bwt', 'pac', 'sa']
+        bwa_references = ['amb', 'ann', 'bwt', 'pac', 'sa', 'alt']
         reference_names.extend(bwa_references)
     for name in reference_names:
+        if config[name] == None:
+            continue
         try:
             config[name] = job.addChildJobFn(download_url_job, config[name], name=name,
                                              syn=config['syn'], s3_key_path=config['ssec']).rv()
@@ -124,6 +182,14 @@ def reference_preprocessing(job, config, mock=False):
 
 
 def setup_and_run_bwa_kit(job, url, config):
+    """
+
+    :param job: Toil Job instance
+    :param url str: FASTQ sample URL
+    :param config dict: Dictionary of configuration parameters
+    :return: BAM FileStoreID
+    :rtype: str
+    """
     job.fileStore.logToMaster("Aligning sample: {}".format(config['uuid']))
 
     # Download fastq files
@@ -145,7 +211,7 @@ def setup_and_run_bwa_kit(job, url, config):
         setattr(bwa_config, key, config[key])
 
     cores = multiprocessing.cpu_count()
-    return job.addFollowOnJobFn(run_bwakit, bwa_config, cores, sort=config['sort'],
+    return job.addFollowOnJobFn(run_bwakit, bwa_config, cores, sort=True,
                                 trim=config['trim']).rv()
 
 
@@ -229,28 +295,22 @@ def parse_manifest(path_to_manifest):
                     raise ValueError(msg)
                 require(urlparse(url).scheme and urlparse(url),
                         'Invalid URL passed for {}'.format(url))
-                samples.append([uuid, url, rg_line])
+                samples.append((uuid, url, rg_line))
     return samples
 
 
 def main():
     """
     GATK HaplotypeCaller with variant recalibration.
-    Writes gvcf and vqsr.vcf to output directory
 
-                Tree Structure of GATK Pipeline
-                0 --> 1 --> 2 --> 3 --> 4 --> 5 ----> 8
-                                             / \      |
-                                            6   7     9
-    0 = Start Node
-    1 = Download References
-    2 = Prepare References
-    4 = Download Sample
-    5 = HaplotypeCaller SNP & Indel
-    6 = VariantRecalibrator SNPs
-    7 = VariantRecalibrator Indels
-    8 = ApplyRecalibration SNPs
-    9 = ApplyRecalibration Indels
+    Steps in Pipeline:
+        1: Download Shared Files
+        2: Prepare References
+        3: Download Sample
+        4: Align FASTQ (Optional)
+        5: Call SNPs & INDELs
+        6: Genotype and Annotate Variants
+        7: Filter Variants
 
     ===================================================================
     :Dependencies:
@@ -297,17 +357,17 @@ def main():
         require(os.path.exists(options.config), '{} not found. Please run '
                                                 '"generate-config"'.format(options.config))
         samples = []
-        if options.sample:
-            uuid, bam = options.sample.split()
-            samples.append((uuid, bam))
-        elif options.manifest:
+        if options.manifest:
             samples.extend(parse_manifest(options.manifest))
+        if options.sample:
+            uuid, url, rg_line = options.sample.split()
+            samples.append((uuid, url, rg_line))
 
         # Parse config
         config = {x.replace('-', '_'): y for x, y in yaml.load(open(options.config).read()).iteritems()}
         config_fields = set(config)
-        required_fields = {'genome.fa', 'mills.vcf', 'dbsnp.vcf', 'phase.vcf', 'hapmap.vcf',
-                           'omni.vcf', 'output_dir', 'run_bwa', 'preprocess', 'run_vqsr'}
+        required_fields = {'genome.fa', 'mills', 'dbsnp', 'phase', 'hapmap', 'omni', 'output_dir',
+                           'run_bwa', 'preprocess', 'run_vqsr'}
         require(config_fields > required_fields,
                 'Missing config parameters:\n{}'.format(', '.join(required_fields - config_fields)))
 
@@ -318,39 +378,12 @@ def main():
         if config['suffix'] is None:
             config['suffix'] = options.suffix if options.suffix else ''
 
-        if not config['suffix'].startswith('.'):
-            config['suffix'] = '.' + config['suffix']
-
         if config['synapse_id'] and config['synapse_pwd']:
             config['syn'] = synapseclient.login(config['synapse_id'], config['synapse_pwd'])
         else:
             config['syn'] = None
 
-        if not config['xmx'].endswith('G'):
-            raise ValueError('xmx parameter must be in gigabytes (i.e. ends with "G"')
-
-        root = Job.wrapJobFn(download_shared_files, config).encapsulate()
-        # Pass config dictionary to reference preprocessing
-        ref = Job.wrapJobFn(reference_preprocessing, root.rv(),
-                            mock=config['mock_mode']).encapsulate()
-
-        # Run after shared files have been downloaded
-        root.addChild(ref)
-
-        # Generate per sample gvcfs
-        gvcfs = {}
-        for uuid, url, rg_line in samples:
-            # ref.rv() returns an updated version of config
-            gvcfs[uuid] = ref.addChildJobFn(gatk_germline_pipeline, uuid, url, ref.rv(),
-                                            rg_line=rg_line).rv()
-
-        if config['run_vqsr'] or len(gvcfs) > 30:
-            ref.addFollowOnJobFn(vqsr_pipeline, gvcfs, ref.rv())
-
-        else:
-            for uuid, gvcf in gvcfs.iteritems():
-                ref.addFollowOnJobFn(hard_filter_pipeline, uuid, gvcf, ref.rv())
-
+        root = Job.wrapJobFn(run_pipeline, samples, config)
         Job.Runner.startToil(root, options)
 
 if __name__ == '__main__':

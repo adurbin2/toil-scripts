@@ -24,11 +24,13 @@ def download_url(url, work_dir='.', name=None, syn=None, s3_key_path=None, cghub
     if cghub_key_path:
         _download_with_genetorrent(url, file_path, cghub_key_path)
     elif urlparse(url).scheme == 's3':
-        _s3am_with_retry(num_cores=1, file_path=file_path, s3_url=url, mode='download', s3_key_path=s3_key_path)
+        _s3am_with_retry(num_cores=1, file_path=file_path, s3_url=url, mode='download',
+
+                         s3_key_path=s3_key_path)
     elif urlparse(url).scheme == 'file':
         shutil.copy(urlparse(url).path, file_path)
     elif syn and url.startswith('syn'):
-        syn.get(url, downloadLocation=work_dir)
+        syn.get(url, downloadLocation=file_path)
     else:
         subprocess.check_call(['curl', '-fs', '--retry', '5', '--create-dir', url, '-o', file_path])
     assert os.path.exists(file_path)

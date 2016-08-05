@@ -1,19 +1,28 @@
 #!/usr/bin/env python2.7
 from __future__ import print_function
-import os
 import multiprocessing
+import os
 
+from toil_scripts.lib.files import get_files_from_filestore, upload_or_move_job
 from toil_scripts.lib.programs import docker_call
-from toil_scripts.lib.files import upload_or_move_job, get_files_from_filestore
 
 
 def vqsr_pipeline(job, gvcfs, config):
     """
-    Takes a dictionary of gvcfs and performs VQSR. Returns filtered vcf
+    Runs GATK Variant Quality Score Recalibration. Writes output to an output directory defined
+    in the config dictionary.
 
-    :param gvcfs:
-    :param config:
-    :return:
+    0: GenotypeGVCFs                0 --> 1 --> 3 --> 4 --> 5
+    1: Recalibrate SNPs                   |      |
+    2: Recalibrate INDELS                 +-> 2 -+
+    3: Apply SNPs
+    4: Apply INDELS
+    5: Write VCF to output directory
+
+    :param gvcfs dict: Dictionary of UUIDs and GVCF FileStoreIDs
+    :param config dict: Input paramters
+    :return: SNP and INDEL VQSR VCF FileStoreID
+    :rtype: str
     """
     genotype_gvcf = job.wrapJobFn(gatk_genotype_gvcf, gvcfs, config)
     snp_recal = job.wrapJobFn(gatk_variant_recalibrator_snp, genotype_gvcf.rv(), config)
@@ -29,7 +38,13 @@ def vqsr_pipeline(job, gvcfs, config):
     job.addFollowOn(apply_snp_recal)
     apply_snp_recal.addFollowOn(apply_indel_recal)
     output_dir = os.path.join(config['output_dir'])
-    vqsr_name = 'joint.vqsr{}.vcf'.format(config['suffix'])
+    if len(gvcfs) == 1:
+        uuid, _ = gvcfs.items()[0]
+        output_dir = os.path.join(output_dir, uuid)
+        vqsr_name = '{}.vqsr{}.vcf'.format(uuid, config['suffix'])
+
+    else:
+        vqsr_name = 'joint.vqsr{}.vcf'.format(config['suffix'])
     output_vqsr = job.wrapJobFn(upload_or_move_job, vqsr_name, apply_indel_recal.rv(),
                                 output_dir)
     apply_indel_recal.addChild(output_vqsr)
@@ -60,13 +75,14 @@ def gatk_genotype_gvcf(job, gvcf_ids, config, annotations=None):
                '-stand_emit_conf', '10.0',
                '-stand_call_conf', '30.0']
 
+    # Genotype across cohort GVCFs
     for uuid in gvcf_ids.keys():
         command.extend(['--variant', uuid])
 
+    # Check for annotations missed by HaploTypeCaller
     if annotations is None:
         annotations = ['QualByDepth', 'FisherStrand', 'StrandOddsRatio', 'ReadPosRankSumTest',
                        'MappingQualityRankSumTest', 'RMSMappingQuality']
-
     for annotation in annotations:
         command.extend(['-A', annotation])
 
@@ -152,6 +168,7 @@ def gatk_apply_variant_recalibration_snp(job, vcf_id, recal_id, tranches_id, con
     :return str: SNP recalibrated VCF file store ID
     """
     job.fileStore.logToMaster('Running GATK ApplyRecalibration (SNP Mode): {}'.format(config['uuid']))
+    cores = multiprocessing.cpu_count()
     work_dir = job.fileStore.getLocalTempDir()
     references = ['genome.fa', 'genome.fa.fai', 'genome.dict']
     inputs = {'toil.vcf': vcf_id,
@@ -164,7 +181,7 @@ def gatk_apply_variant_recalibration_snp(job, vcf_id, recal_id, tranches_id, con
                '-input', 'toil.vcf',
                '-o', 'toil.vqsr.vcf',
                '-R', 'genome.fa',
-               '-nt', '1',
+               '-nt', str(cores),
                '-ts_filter_level', '99.0',
                '-tranchesFile', 'HAPSNP.tranches',
                '-recalFile', 'HAPSNP.recal',

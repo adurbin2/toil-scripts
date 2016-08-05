@@ -17,25 +17,22 @@ def generate_config():
         genome.dict:
 
         # Required: URL (1000G_phase1.indels.hg19.sites.fixed.vcf)
-        phase.vcf:
+        phase:
 
         # Required: URL (Mills_and_1000G_gold_standard.indels.hg19.sites.vcf)
-        mills.vcf:
+        mills:
 
         # Required: URL (dbsnp_132_b37.leftAligned.vcf URL)
-        dbsnp.vcf:
+        dbsnp:
 
         # Required: URL (hapmap_3.3.b37.vcf)
-        hapmap.vcf:
+        hapmap:
 
         # Required: URL (1000G_omni.5.b37.vcf)
-        omni.vcf:
+        omni:
 
         # Optional: (boolean) Run BWA on fastqs
         run_bwa:
-
-        # Optional: If true, BWA sorts bam
-        sort: True
 
         # Optional. If true, BWA trims adapters
         trim: True

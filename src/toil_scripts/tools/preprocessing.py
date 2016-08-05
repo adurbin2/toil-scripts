@@ -1,8 +1,9 @@
 import os
 import multiprocessing
 
+from bd2k.util.humanize import human2bytes
+
 from toil_scripts.lib import require
-from toil_scripts.lib.files import upload_or_move_job
 from toil_scripts.lib.programs import docker_call
 
 
@@ -100,10 +101,10 @@ def samtools_view(job, bam_id, flag='0', mock=False):
     cores = multiprocessing.cpu_count()
     command = ['view',
                '-b',
-               '-o', '/data/sample.output.bam',
+               '-o', '/data/output.bam',
                '-F', str(flag),
                '-@', str(cores),
-               '/data/sample.bam']
+               '/data/input.bam']
     docker_call(work_dir=work_dir, parameters=command,
                 tool='quay.io/ucsc_cgl/samtools:1.3--256539928ea162949d8a65ca5c79a72ef557ce7c',
                 outputs=outputs,
@@ -134,7 +135,7 @@ def run_picard_create_sequence_dictionary(job, ref_id, xmx='10G', mock=False):
 
 def picard_sort_sam(job, bam_id, xmx='8G', mock=False):
     """
-    Uses picardtools SortSam to sort a sample bam file
+    Uses picardtools SortSam to sort a BAM file
 
     :param bam_id str: BAM FileStoreID
     :param xmx: Java memory allocation
@@ -150,7 +151,7 @@ def picard_sort_sam(job, bam_id, xmx='8G', mock=False):
                'SORT_ORDER=coordinate',
                'CREATE_INDEX=true']
     docker_call(work_dir=work_dir, parameters=command,
-                env={'_JAVA_OPTIONS':'-Djava.io.tmpdir=/data/ -Xmx{}'.format(xmx)},
+                env={'_JAVA_OPTIONS':'-Djava.io.tmpdir=/data/ -Xmx{}'.format(human2bytes(xmx))},
                 tool='quay.io/ucsc_cgl/picardtools:1.95--dd5ac549b95eb3e5d166a5e310417ef13651994e',
                 outputs=outputs, mock=mock)
     outpath_bam = os.path.join(work_dir, 'sample.sorted.bam')
@@ -187,7 +188,7 @@ def picard_mark_duplicates(job, bam_id, bai_id, xmx='10G', mock=False):
                'ASSUME_SORTED=true',
                'CREATE_INDEX=true']
     docker_call(work_dir=work_dir, parameters=command,
-                env={'_JAVA_OPTIONS':'-Djava.io.tmpdir=/data/ -Xmx{}'.format(xmx)},
+                env={'_JAVA_OPTIONS':'-Djava.io.tmpdir=/data/ -Xmx{}'.format(human2bytes(xmx))},
                 tool='quay.io/ucsc_cgl/picardtools:1.95--dd5ac549b95eb3e5d166a5e310417ef13651994e',
                 outputs=outputs, mock=mock)
 
@@ -228,7 +229,7 @@ def run_preprocessing(job, cores, bam, bai, ref, ref_dict, fai, phase, mills, db
     return pr.rv(0), pr.rv(1)
 
 
-def run_germline_preprocessing(job, cores, bam, bai, ref, ref_dict, fai, phase, mills, dbsnp,
+def run_germline_preprocessing(job, cores, uuid, bam, bai, ref, ref_dict, fai, phase, mills, dbsnp,
                                mem='10G', unsafe=False, mock=False):
     """
     Pre-processing steps for running the GATK Germline pipeline
@@ -248,10 +249,11 @@ def run_germline_preprocessing(job, cores, bam, bai, ref, ref_dict, fai, phase, 
     :return: BAM and BAI FileStoreIDs from Print Reads
     :rtype: tuple(str, str)
     """
+    mem = human2bytes(mem)
     rm_secondary = job.wrapJobFn(samtools_view, bam, flag='0x800', mock=mock)
     picard_sort = job.wrapJobFn(picard_sort_sam, rm_secondary.rv(), xmx=mem, mock=mock)
     # MarkDuplicates runs best when Xmx <= 10G
-    mdups_mem = '{}G'.format(min(10, int(mem[:-1])))
+    mdups_mem = min(human2bytes('10G'), mem)
     mdups = job.wrapJobFn(picard_mark_duplicates, picard_sort.rv(0), picard_sort.rv(1),
                           xmx=mdups_mem, mock=mock)
     realigner_target = job.wrapJobFn(run_realigner_target_creator, cores, mdups.rv(0), mdups.rv(1),
@@ -270,12 +272,16 @@ def run_germline_preprocessing(job, cores, bam, bai, ref, ref_dict, fai, phase, 
                                 indel_realign.rv(1), ref, ref_dict, fai, mem, unsafe=unsafe,
                                 mock=mock)
 
+    job.fileStore.logToMaster('Preprocessing sample: {}'.format(uuid))
     job.addChild(rm_secondary)
     rm_secondary.addChild(picard_sort)
     picard_sort.addChild(mdups)
     mdups.addChild(realigner_target)
+    job.fileStore.logToMaster('Running GATK RealignerTargetCreator: {}'.format(uuid))
     realigner_target.addChild(indel_realign)
+    job.fileStore.logToMaster('Running GATK IndelRealigner: {}'.format(uuid))
     indel_realign.addChild(base_recal_one)
+    job.fileStore.logToMaster('Running GATK BaseRecalibrator: {}'.format(uuid))
     base_recal_one.addChild(base_recal_two)
     base_recal_two.addChild(print_reads)
     return print_reads.rv(0), print_reads.rv(1)

@@ -196,7 +196,7 @@ def get_files_from_filestore(job, work_dir, input_dict):
             file_path = name
         if tarfile.is_tarfile(file_path):
             file_path = untargz(file_path, work_dir)
-        elif is_gzipfile(file_path):
-            file_path = gunzip(file_path)
+        # elif is_gzipfile(file_path):
+        #     file_path = gunzip(file_path)
         input_dict[name] = file_path
     return input_dict
