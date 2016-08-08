@@ -129,12 +129,12 @@ def consolidate_tarballs_job(job, fname_to_id):
 
 def untargz(input_targz_file, untar_to_dir):
     """
-    This module accepts a tar.gz archive and untars it.
+    Expands a tar.gz file
 
-    RETURN VALUE: path to the untar-ed directory/file
-
-    NOTE: this module expects the multiple files to be in a directory before
-          being tar-ed.
+    :param str input_targz_file:
+    :param str untar_to_dir: path to untar-ed directory/file
+    :return: path to untar-ed archive
+    :rtype: str
     """
     assert tarfile.is_tarfile(input_targz_file), 'Not a tar file.'
     tarball = tarfile.open(input_targz_file)
@@ -144,50 +144,15 @@ def untargz(input_targz_file, untar_to_dir):
     return return_value
 
 
-def gunzip(input_gzip_file, block_size=1024):
-    """
-    Gunzips the input file to the same directory
-    :param input_gzip_file: File to be gunzipped
-    :return: path to the gunzipped file
-    """
-    assert os.path.splitext(input_gzip_file)[1] == '.gz'
-    assert is_gzipfile(input_gzip_file)
-    with gzip.open(input_gzip_file) as infile:
-        with open(os.path.splitext(input_gzip_file)[0], 'w') as outfile:
-            while True:
-                block = infile.read(block_size)
-                if block == '':
-                    break
-                else:
-                    outfile.write(block)
-    return outfile.name
-
-
-def is_gzipfile(filename):
-    """
-    This function attempts to ascertain the gzip status of a file based on the "magic signatures" of
-    the file. This was taken from the stack overflow
-    http://stackoverflow.com/questions/13044562/python-mechanism-to-identify-compressed-file-type\
-        -and-uncompress
-    """
-    assert os.path.exists(filename), 'Input {} does not '.format(filename) + \
-                                     'point to a file.'
-    with open(filename, 'rb') as in_f:
-        start_of_file = in_f.read(3)
-        if start_of_file == '\x1f\x8b\x08':
-            return True
-        else:
-            return False
-
-
 def get_files_from_filestore(job, work_dir, input_dict):
     """
-    Copies files from the file store to a work directory
+    Copies files from the file store to a work directory. Will expand tar/gzipped files.
 
-    :param job: Toil Job instance
-    :param work_dir: current working directory
-    :param input_dict: {filename: fileStoreID}
-    :return dict: {filename: filepath}
+    :param JobFunctionWrappingJob job: Toil Job instance
+    :param str work_dir: current working directory
+    :param dict input_dict: {filename: fileStoreID}
+    :return: {filename: filepath}
+    :rtype: dict
     """
     for name, fileStoreID in input_dict.iteritems():
         if not os.path.exists(os.path.join(work_dir, name)):
@@ -196,7 +161,5 @@ def get_files_from_filestore(job, work_dir, input_dict):
             file_path = name
         if tarfile.is_tarfile(file_path):
             file_path = untargz(file_path, work_dir)
-        # elif is_gzipfile(file_path):
-        #     file_path = gunzip(file_path)
         input_dict[name] = file_path
     return input_dict

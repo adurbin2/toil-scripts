@@ -8,7 +8,7 @@ from toil_scripts.lib import require
 from toil_scripts.lib.programs import docker_call
 
 
-def download_url(url, work_dir='.', name=None, syn=None, s3_key_path=None, cghub_key_path=None):
+def download_url(url, work_dir='.', name=None, s3_key_path=None, cghub_key_path=None):
     """
     Downloads URL, can pass in file://, http://, s3://, or ftp://, gnos://cghub/analysisID, or gnos:///analysisID
 
@@ -29,19 +29,17 @@ def download_url(url, work_dir='.', name=None, syn=None, s3_key_path=None, cghub
                          s3_key_path=s3_key_path)
     elif urlparse(url).scheme == 'file':
         shutil.copy(urlparse(url).path, file_path)
-    elif syn and url.startswith('syn'):
-        syn.get(url, downloadLocation=file_path)
     else:
         subprocess.check_call(['curl', '-fs', '--retry', '5', '--create-dir', url, '-o', file_path])
     assert os.path.exists(file_path)
     return file_path
 
 
-def download_url_job(job, url, name=None, syn=None, s3_key_path=None, cghub_key_path=None):
+def download_url_job(job, url, name=None, s3_key_path=None, cghub_key_path=None):
     """Job version of `download_url`"""
     work_dir = job.fileStore.getLocalTempDir()
-    fpath = download_url(url, work_dir=work_dir, name=name, syn=None,
-                         s3_key_path=s3_key_path, cghub_key_path=cghub_key_path)
+    fpath = download_url(url, work_dir=work_dir, name=name, s3_key_path=s3_key_path,
+                         cghub_key_path=cghub_key_path)
     return job.fileStore.writeGlobalFile(fpath)
 
 

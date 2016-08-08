@@ -1,5 +1,6 @@
 import textwrap
 
+
 def generate_config():
     return textwrap.dedent("""
         # GATK Germline Pipeline configuration file
@@ -8,55 +9,49 @@ def generate_config():
         # Comments (beginning with #) do not need to be removed. Optional parameters may be left blank.
         ##############################################################################################################
         # Required: Reference Genome URL (hg19.fa)
-        genome.fa:
+        genome-fasta:
 
         # Optional: Reference Genome Index URL (hg19.fa.fai)
-        genome.fa.fai:
+        genome-fai:
 
         # Optional: Reference Genome Sequence Dictionary (hg19.dict)
-        genome.dict:
+        genome-dict:
 
-        # Required: URL (1000G_phase1.indels.hg19.sites.fixed.vcf)
+        # Optional: URL (1000G_phase1.indels.hg19.sites.fixed.vcf)
         phase:
 
-        # Required: URL (Mills_and_1000G_gold_standard.indels.hg19.sites.vcf)
+        # Optional: URL (Mills_and_1000G_gold_standard.indels.hg19.sites.vcf)
         mills:
 
-        # Required: URL (dbsnp_132_b37.leftAligned.vcf URL)
+        # Optional: URL (dbsnp_138.hg19.excluding_sites_after_129.vcf)
         dbsnp:
 
-        # Required: URL (hapmap_3.3.b37.vcf)
+        # Optional: URL (hapmap_3.3.hg19.sites.vcf)
         hapmap:
 
-        # Required: URL (1000G_omni.5.b37.vcf)
+        # Optional: URL (1000G_omni2.5.hg19.sites.vcf)
         omni:
 
         # Optional: (boolean) Run BWA on fastqs
-        run_bwa:
+        run-bwa:
 
         # Optional. If true, BWA trims adapters
         trim: True
 
         # Optional: Reference fasta file (amb) -- if not present will be generated
-        amb: s3://cgl-pipeline-inputs/alignment/hg19.fa.amb
+        amb:
 
         # Optional: Reference fasta file (ann) -- If not present will be generated
-        ann: s3://cgl-pipeline-inputs/alignment/hg19.fa.ann
+        ann:
 
         # Optional: Reference fasta file (bwt) -- If not present will be generated
-        bwt: s3://cgl-pipeline-inputs/alignment/hg19.fa.bwt
+        bwt:
 
         # Optional: Reference fasta file (pac) -- If not present will be generated
-        pac: s3://cgl-pipeline-inputs/alignment/hg19.fa.pac
+        pac:
 
         # Optional: Reference fasta file (sa) -- If not present will be generated
-        sa: s3://cgl-pipeline-inputs/alignment/hg19.fa.sa
-
-        # Optional: Reference fasta file (fai) -- If not present will be generated
-        fai: s3://cgl-pipeline-inputs/alignment/hg19.fa.fai
-
-        # Optional: (string) Path to Key File for SSE-C Encryption
-        ssec:
+        sa:
 
         # Optional: Alternate file for reference build (alt). Necessary for alt aware alignment
         alt:
@@ -65,19 +60,12 @@ def generate_config():
         preprocess:
 
         # Optional: (boolean) Run GATK VQSR
-        run_vqsr:
+        run-vqsr:
 
-        # Optional: (boolean) Run Oncotator on Variants
-        run_oncotator:
+        # Optional: (boolean) Joint Calling
+        joint:
 
-        # Optional: Oncotator Database
-        oncotator_index:
-
-        # Optional: Synapse account and password
-        synapse_id:
-        synapse_pwd:
-
-        # Required: Approximate input file size. Provided as a number followed by (base-10) [TGMK]. E.g. 10M, 150G
+        # Optional: Approximate input file size
         file-size: 50G
 
         # Memory allocation for Java option Xmx
@@ -87,17 +75,15 @@ def generate_config():
         suffix:
 
         # Optional: (string) Path to output directory
-        output_dir:
+        output-dir:
 
-        # Optional: HaplotypeCaller Annotations
-        HC_annotations:
+        # Optional: (string) Path to Key File for SSE-C Encryption
+        ssec:
 
         # Optional: (boolean) Set to True to allow seq dict incompatibility
-        unsafe_mode:
-
-        # Optional: (boolean) Set to True to run pipeline in mock mode
-        mock_mode:
+        unsafe-mode:
         """[1:])
+
 
 def generate_manifest():
     return textwrap.dedent("""

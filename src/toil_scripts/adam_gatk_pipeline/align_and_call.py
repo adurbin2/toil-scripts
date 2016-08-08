@@ -193,31 +193,36 @@ def static_dag(job, uuid, rg_line, inputs):
                                     's3://{s3_bucket}/analysis{dir_suffix}/{uuid}'.format(**args),
                                     suffix='.adam').encapsulate()
 
+    gatk_inputs = copy.deepcopy(inputs)
+    gatk_inputs.suffix = '.gatk'
+    gatk_inputs.output_dir = 's3://{s3_bucket}/analysis{dir_suffix}/{uuid}'.format(**args)
+
     # get head GATK preprocessing job function and encapsulate it
-    gatk_preprocess = job.wrapJobFn(download_gatk_files,
-                                    inputs,
-                                    [uuid,'s3://{s3_bucket}/alignment{dir_suffix}/{uuid}.bam'.format(**args)],
-                                    's3://{s3_bucket}/analysis{dir_suffix}/{uuid}'.format(**args),
-                                    suffix='.gatk').encapsulate()
+    gatk_preprocess = job.wrapJobFn(run_germline_preprocessing,
+                                    uuid,
+                                    's3://{s3_bucket}/alignment{dir_suffix}/{uuid}.bam'.format(**args),
+                                    gatk_inputs).encapsulate()
 
     adam_call_inputs = inputs
-    gatk_call_inputs = copy.deepcopy(inputs)
     adam_call_inputs.indexed = False
-    gatk_call_inputs.indexed = True
 
     # get head GATK haplotype caller job function for the result of ADAM preprocessing and encapsulate it
-    gatk_adam_call = job.wrapJobFn(batch_start,
+    gatk_adam_call = job.wrapJobFn(run_gatk_germline_pipeline,
+                                   uuid,
+                                   's3://{s3_bucket}/analysis{dir_suffix}/{uuid}/{uuid}.adam.bam'.format(**args),
                                    adam_call_inputs,
-                                   [uuid,'s3://{s3_bucket}/analysis{dir_suffix}/{uuid}/{uuid}.adam.bam'.format(**args)],
-                                   's3://{s3_bucket}/analysis{dir_suffix}/{uuid}'.format(**args),
                                    suffix='.adam').encapsulate()
 
+    gatk_inputs.indexed = True
+    gatk_inputs.run_vqsr = True
+    gatk_inputs.joint = False
+
     # get head GATK haplotype caller job function for the result of GATK preprocessing and encapsulate it
-    gatk_gatk_call = job.wrapJobFn(batch_start,
-                                   gatk_call_inputs,
-                                   [uuid,'s3://{s3_bucket}/analysis{dir_suffix}/{uuid}/{uuid}.gatk.bam'.format(**args)],
-                                   's3://{s3_bucket}/analysis{dir_suffix}/{uuid}'.format(**args),
-                                   suffix='.gatk').encapsulate()
+    gatk_gatk_call = job.wrapJobFn(run_gatk_germline_pipeline,
+                                   [(uuid,
+                                   'S3://{s3_bucket}/analysis{dir_suffix}/{uuid}/{uuid}.gatk.bam'.format(**args),
+                                   None)],
+                                   gatk_inputs).encapsulate()
 
     # add code to bump the number of jobs after alignment
     # start with -1 since we already have a single node for our sample

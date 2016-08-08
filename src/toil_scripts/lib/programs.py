@@ -1,8 +1,8 @@
 from __future__ import print_function
-
 import os
 import subprocess
 import logging
+
 from bd2k.util.exceptions import panic
 
 _log = logging.getLogger(__name__)
@@ -47,7 +47,6 @@ def docker_call(tool,
                       the environment variable.
     """
     from toil_scripts.lib.urls import download_url
-    import sys
 
     if mock is None:
         mock = mock_mode()
