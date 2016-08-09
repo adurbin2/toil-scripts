@@ -1,6 +1,7 @@
 import os
 
 from bd2k.util.humanize import human2bytes
+from toil.job import PromisedRequirement
 
 from toil_scripts.lib import require
 from toil_scripts.lib.programs import docker_call
@@ -89,7 +90,7 @@ def run_samtools_index(job, bam_id):
     return job.fileStore.writeGlobalFile(os.path.join(work_dir, 'sample.bam.bai'))
 
 
-def samtools_view(job, bam_id, ncores=1, flag='0'):
+def run_samtools_view(job, bam_id, ncores=1, flag='0'):
     """
     Filters BAM file using SAM bitwise flag
 
@@ -107,6 +108,28 @@ def samtools_view(job, bam_id, ncores=1, flag='0'):
                '-F', str(flag),
                '-@', str(ncores),
                '/data/input.bam']
+    docker_call(work_dir=work_dir, parameters=command,
+                tool='quay.io/ucsc_cgl/samtools:1.3--256539928ea162949d8a65ca5c79a72ef557ce7c',
+                outputs=outputs)
+    outpath = os.path.join(work_dir, 'output.bam')
+    return job.fileStore.writeGlobalFile(outpath)
+
+
+def run_samtools_sort(job, bam_id, ncores=1):
+    """
+    Sorts BAM file using SAMtools
+
+    :param str bam_id: BAM FileStoreID
+    :param int ncores: Number of cores allocated to job
+    :return str: sorted BAM fileStoreID
+    """
+    work_dir = job.fileStore.getLocalTempDir()
+    job.fileStore.readGlobalFile(bam_id, os.path.join(work_dir, 'input.bam'))
+    command = ['sort',
+               '-@', str(ncores),
+               '-o', '/data/output.bam',
+               '/data/input.bam']
+    outputs = {'output.bam': None}
     docker_call(work_dir=work_dir, parameters=command,
                 tool='quay.io/ucsc_cgl/samtools:1.3--256539928ea162949d8a65ca5c79a72ef557ce7c',
                 outputs=outputs)
@@ -169,7 +192,7 @@ def picard_sort_sam(job, bam_id, xmx=10737418240):
 
 def picard_mark_duplicates(job, bam_id, bai_id, xmx=10737418240):
     """
-    Runs picardtools MarkDuplicates. Assumes the bam file is coordinate sorted.
+    Runs picardtools MarkDuplicates. Assumes the BAM file is coordinate sorted.
 
     :param bam_id: BAM FileStoreID
     :param bai_id: BAI FileStoreID
@@ -178,9 +201,6 @@ def picard_mark_duplicates(job, bam_id, bai_id, xmx=10737418240):
     :rtype: tuple
     """
     work_dir = job.fileStore.getLocalTempDir()
-    outputs={'sample.mkdups.bam': None, 'sample.mkdups.bai': None}
-    outpath_bam = os.path.join(work_dir, 'sample.mkdups.bam')
-    outpath_bai = os.path.join(work_dir, 'sample.mkdups.bai')
 
     # Retrieve file path
     job.fileStore.readGlobalFile(bam_id, os.path.join(work_dir, 'sample.sorted.bam'))
@@ -192,13 +212,19 @@ def picard_mark_duplicates(job, bam_id, bai_id, xmx=10737418240):
                'OUTPUT=sample.mkdups.bam',
                'METRICS_FILE=metrics.txt',
                'ASSUME_SORTED=true',
-               'CREATE_INDEX=true']
+               'CREATE_INDEX=true',
+               'VALIDATION_STRINGENCY=LENIENT' # Ignores minor formatting issues
+               ]
+
+    outputs={'sample.mkdups.bam': None, 'sample.mkdups.bai': None}
     docker_call(work_dir=work_dir,
                 parameters=command,
                 env={'_JAVA_OPTIONS':'-Djava.io.tmpdir=/data/ -Xmx{}'.format(xmx)},
                 tool='quay.io/ucsc_cgl/picardtools:1.95--dd5ac549b95eb3e5d166a5e310417ef13651994e',
                 outputs=outputs)
 
+    outpath_bam = os.path.join(work_dir, 'sample.mkdups.bam')
+    outpath_bai = os.path.join(work_dir, 'sample.mkdups.bai')
     bam_id = job.fileStore.writeGlobalFile(outpath_bam)
     bai_id = job.fileStore.writeGlobalFile(outpath_bai)
     return bam_id, bai_id
@@ -237,7 +263,7 @@ def run_preprocessing(job, cores, bam, bai, ref, ref_dict, fai, phase, mills, db
 
 
 def run_germline_preprocessing(job, cores, bam, bai, ref, ref_dict, fai, phase, mills, dbsnp,
-                               mem=10737418240, unsafe=False):
+                               file_size=10737418240, xmx=10737418240, unsafe=False):
     """
     Pre-processing steps for running the GATK Germline pipeline
 
@@ -251,73 +277,65 @@ def run_germline_preprocessing(job, cores, bam, bai, ref, ref_dict, fai, phase, 
     :param str phase: Phase VCF FileStoreID
     :param str mills: Mills VCF FileStoreID
     :param str dbsnp: DBSNP VCF FileStoreID
-    :param str mem: Java memory allocation
+    :param int file_size: Approximate input BAM size. Default: 10G
+    :param str xmx: Java memory allocation. Default: 10G
     :param bool unsafe: If True, runs gatk UNSAFE mode: "-U ALLOW_SEQ_DICT_INCOMPATIBILITY"
     :return: BAM and BAI FileStoreIDs from Print Reads
     :rtype: tuple(str, str)
     """
-    rm_secondary = job.wrapJobFn(samtools_view,
-                                 bam,
-                                 flag='0x800',
-                                 ncores=cores,
-                                 disk=2*bam.size, cores=cores)
-
-    picard_sort = job.wrapJobFn(picard_sort_sam,
-                                rm_secondary.rv(),
-                                xmx=mem,
-                                memory=mem, disk=3*bam.size, cores=cores)
-
     # MarkDuplicates runs best when Xmx <= 10G
-    mdups_mem = min(10737418240, mem)
+    mdups_memory = min(10737418240, xmx)
     mdups = job.wrapJobFn(picard_mark_duplicates,
-                          picard_sort.rv(0), picard_sort.rv(1),
-                          xmx=mdups_mem,
-                          memory=mdups_mem, disk=2*bam.size, cores=cores)
+                          bam, bai,
+                          xmx=mdups_memory,
+                          memory=mdups_memory, cores=cores, disk=file_size)
 
-    realigner_target_disk = 2*bam.size + human2bytes('10G')
+    realigner_target_disk = PromisedRequirement(lambda x: 2 * x.size + human2bytes('10G'),
+                                                mdups.rv(0))
     realigner_target = job.wrapJobFn(run_realigner_target_creator,
                                      cores,
                                      mdups.rv(0), mdups.rv(1),
                                      ref, ref_dict, fai,
                                      phase, mills,
-                                     mem,
+                                     xmx,
                                      unsafe=unsafe,
-                                     memory=mem, disk=realigner_target_disk, cores=cores)
+                                     memory=xmx, disk=realigner_target_disk, cores=cores)
 
-    indel_realign_disk = 2*bam.size + human2bytes('10G')
+    indel_realign_disk = PromisedRequirement(lambda x: 2 * x.size + human2bytes('10G'),
+                                             mdups.rv(0))
     indel_realign = job.wrapJobFn(run_indel_realignment,
                                   realigner_target.rv(),
                                   bam, bai,
                                   ref, ref_dict, fai,
                                   phase, mills,
-                                  mem,
+                                  xmx,
                                   unsafe=unsafe,
-                                  memory=mem, disk=indel_realign_disk, cores=cores)
+                                  memory=xmx, disk=indel_realign_disk, cores=cores)
 
-    base_recal_disk = 2*bam.size + human2bytes('10G')
+    base_recal_disk = PromisedRequirement(lambda x: 2 * x.size + human2bytes('10G'),
+                                          mdups.rv(0))
     base_recal = job.wrapJobFn(run_base_recalibration,
                                cores,
                                indel_realign.rv(0),
                                indel_realign.rv(1),
                                ref, ref_dict, fai,
                                dbsnp, mills,
-                               mem,
+                               xmx,
                                unsafe=unsafe,
-                               memory=mem, disk=base_recal_disk, cores=cores)
+                               memory=xmx, disk=base_recal_disk, cores=cores)
 
-    recalibrate_reads_disk = 2*bam.size
+    recalibrate_reads_disk = PromisedRequirement(lambda x: 2 * x.size + human2bytes('10G'),
+                                                 mdups.rv(0))
     recalibrate_reads = job.wrapJobFn(run_print_reads,
-                                cores,
-                                base_recal.rv(),
-                                indel_realign.rv(0), indel_realign.rv(1),
-                                ref, ref_dict, fai,
-                                mem,
-                                unsafe=unsafe,
-                                memory=mem, disk=recalibrate_reads_disk, cores=cores)
+                                      cores,
+                                      base_recal.rv(),
+                                      indel_realign.rv(0), indel_realign.rv(1),
+                                      ref, ref_dict, fai,
+                                      xmx,
+                                      unsafe=unsafe,
+                                      memory=xmx, disk=recalibrate_reads_disk, cores=cores)
 
-    job.addChild(rm_secondary)
-    rm_secondary.addChild(picard_sort)
-    picard_sort.addChild(mdups)
+    job.addChild(mdups)
     mdups.addChild(realigner_target)
     realigner_target.addChild(indel_realign)
     indel_realign.addChild(base_recal)

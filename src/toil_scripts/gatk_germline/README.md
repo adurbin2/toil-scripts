@@ -2,10 +2,8 @@
 ### Guide: Running GATK Best Practices Variant Pipeline using Toil
 
 ## Overview
-Runs GATK HaplotypeCaller to identify SNPs and INDELs and applies 
-variant quality score recalibration. The pipeline produces a raw GVCF 
-file and a variant quality score recalibrated VCF. The outputs are named 
-using the sample's unique identifier.
+The TOIL Germline Worfklow identifies SNPs and INDELs in WES/WGS data 
+using GATK preprocessing, variant calling, and filtering tools. 
 
 
 #### General Dependencies
@@ -59,16 +57,27 @@ Run a single sample locally
 
 ## Example Config
 ```
-genome: s3://cgl-pipeline-inputs/hg19/ucsc.hg19.fasta
+genome-fasta: s3://cgl-pipeline-inputs/hg19/ucsc.hg19.fasta
+genome-fai: s3://cgl-pipeline-inputs/hg19/ucsc.hg19.fasta.fai
+genome-dict: s3://cgl-pipeline-inputs/hg19/ucsc.hg19.dict
 phase: s3://cgl-pipeline-inputs/hg19/1000G_phase1.indels.hg19.sites.vcf
 mills: s3://cgl-pipeline-inputs/hg19/Mills_and_1000G_gold_standard.indels.hg19.sites.vcf)
 dbsnp: s3://cgl-pipeline-inputs/hg19/dbsnp_138.hg19.excluding_sites_after_129.vcf
 hapmap: s3://cgl-pipeline-inputs/hg19/hapmap_3.3.hg19.sites.vcf
 omni: s3://cgl-pipeline-inputs/hg19/1000G_omni2.5.hg19.sites.vcf
-output_dir: /data/my-toil-run
+run-bwa: True
+trim: True
+amb: s3://cgl-pipeline-inputs/alignment/hg19.fa.amb
+ann: s3://cgl-pipeline-inputs/alignment/hg19.fa.ann
+bwt: s3://cgl-pipeline-inputs/alignment/hg19.fa.bwt
+pac: s3://cgl-pipeline-inputs/alignment/hg19.fa.pac
+sa: s3://cgl-pipeline-inputs/alignment/hg19.fa.sa
+run-vqsr: True
+joint: True
+file-size: 10G
 xmx: 30G
+suffix: .toil
+output_dir: /data/my-toil-run
 ssec:
-suffix:
-unsafe_mode:
-mock_mode: False
+unsafe_mode: False
 ```
