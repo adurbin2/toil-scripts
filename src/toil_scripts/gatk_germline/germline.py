@@ -4,7 +4,7 @@ import argparse
 from copy import deepcopy
 import multiprocessing
 import os
-from urlparse import urlparse
+from copy import deepcopy
 
 from bd2k.util.humanize import human2bytes
 from bd2k.util.processes import which
