@@ -1,12 +1,13 @@
 #!/usr/bin/env python2.7
 from __future__ import print_function
 import os
-from toil.job import PromisedRequirement
-from bd2k.util.humanize import human2bytes
 
+from bd2k.util.humanize import human2bytes
+from toil.job import PromisedRequirement
+
+from toil_scripts.lib.files import upload_or_move_job
 from toil_scripts.tools.variant_filters import gatk_genotype_gvcf, gatk_select_variants, \
     gatk_variant_filtration
-from toil_scripts.lib.files import upload_or_move_job
 
 
 def hard_filter_pipeline(job, uuid, gvcf_id, config):
@@ -22,22 +23,22 @@ def hard_filter_pipeline(job, uuid, gvcf_id, config):
     5: Write filtered VCFs to output directory
 
     :param job: Toil Job instance
-    :param uuid str: Unique sample identifier
-    :param gvcf_id str: GVCF FileStoreID
-    :param config Namespace:
+    :param str uuid: Unique sample identifier
+    :param str gvcf_id: GVCF FileStoreID
+    :param Namespace config: Pipeline configuration options and shared files
     :return: SNP and INDEL FileStoreIDs
     :rtype: tuple
     """
     job.fileStore.logToMaster('Running Hard Filter on {}'.format(uuid))
 
-    genotype_gvcf_disk = 2*gvcf_id.size + human2bytes('5G')
+    genotype_gvcf_disk = PromisedRequirement(lambda x: 2*x.size + human2bytes('5G'), gvcf_id)
     genotype_gvcf = job.wrapJobFn(gatk_genotype_gvcf,
                                   dict(uuid=gvcf_id),
                                   config,
                                   memory=config.xmx, disk=genotype_gvcf_disk)
 
     select_snps_disk = PromisedRequirement(lambda x: 2*x.size + human2bytes('5G'),
-                                  genotype_gvcf.rv())
+                                           genotype_gvcf.rv())
     select_snps = job.wrapJobFn(gatk_select_variants,
                                 'SNP',
                                 genotype_gvcf.rv(),
