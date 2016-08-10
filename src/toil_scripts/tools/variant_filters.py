@@ -1,5 +1,6 @@
 import multiprocessing
 import os
+import subprocess
 
 from toil_scripts.lib.files import get_files_from_filestore
 from toil_scripts.lib.programs import docker_call
@@ -141,7 +142,13 @@ def gatk_variant_filtration(job, mode, vcf_id, config):
                 tool = 'quay.io/ucsc_cgl/gatk:3.5--dba6dae49156168a909c43330350c6161dc7ecc2',
                 inputs=inputs.keys(),
                 outputs=outputs)
-    return job.fileStore.writeGlobalFile(os.path.join(work_dir, 'filtered_variants.vcf'))
+
+    outpath = os.path.join(work_dir, 'filtered_variants.vcf')
+
+    # Fix extra double quotation mark in FILTER
+    sed_cmd = 's/"{}"/{}/'.format(expression, expression)
+    subprocess.call(['sed', '-i.bak', sed_cmd, outpath])
+    return job.fileStore.writeGlobalFile(outpath)
 
 
 def gatk_variant_recalibrator(job, mode, vcf_id, config):

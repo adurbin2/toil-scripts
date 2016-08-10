@@ -8,8 +8,7 @@ from toil_scripts.lib.programs import docker_call
 
 def run_oncotator(job, vcf_id, config):
     """
-    Runs Oncotator on
-    Only supports HG19
+    Runs Oncotator on VCF file
 
     :param job:
     :param vcf_id:
@@ -24,12 +23,11 @@ def run_oncotator(job, vcf_id, config):
 
     # Call GATK -- HaplotypeCaller
     command = ['-i', 'VCF',
-               '--db-dir', 'oncotator_index',
-               '-o', 'annotated.vcf',
+               '-o', 'VCF',
+               '--db-dir', inputs['oncotator_index'],
+               'input.vcf'
+               'annotated.vcf',
                'hg19']
-
-    if config['unsafe_mode']:
-        command = ['-U', 'ALLOW_SEQ_DICT_INCOMPATIBILITY'] + command
 
     outputs={'output.vcf': None}
     docker_call(work_dir = work_dir,
@@ -37,7 +35,7 @@ def run_oncotator(job, vcf_id, config):
                 parameters = command,
                 tool = 'jpfeil/oncotator:1.9--8fffc356981862d50cfacd711b753700b886b605',
                 inputs=inputs.keys(),
-                outputs=outputs, mock=config['mock_mode'])
+                outputs=outputs)
     return job.fileStore.writeGlobalFile(os.path.join(work_dir, 'output.vcf'))
 
 
