@@ -145,9 +145,9 @@ def gatk_variant_filtration(job, mode, vcf_id, config):
 
     outpath = os.path.join(work_dir, 'filtered_variants.vcf')
 
-    # Fix extra double quotation mark in FILTER
+    # Fix extra quotation marks in FILTER line
     sed_cmd = 's/"{}"/{}/'.format(expression, expression)
-    subprocess.call(['sed', '-i.bak', sed_cmd, outpath])
+    subprocess.call(['sed', '-i', sed_cmd, outpath])
     return job.fileStore.writeGlobalFile(outpath)
 
 

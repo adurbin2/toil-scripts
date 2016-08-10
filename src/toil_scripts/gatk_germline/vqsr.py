@@ -23,6 +23,7 @@ def vqsr_pipeline(job, gvcfs, config):
     4: Apply INDELS
     5: Write VCF to output directory
 
+    :param JobFunctionWrappingJob job: Toil Job instance
     :param dict gvcfs: Dictionary of UUIDs and GVCF FileStoreIDs
     :param Namespace config: Input parameters
     :return: SNP and INDEL VQSR VCF FileStoreID
@@ -72,15 +73,17 @@ def vqsr_pipeline(job, gvcfs, config):
                                       config,
                                       disk=apply_indel_recal_disk, cores=cores)
 
+
     job.addFollowOn(genotype_gvcf)
     genotype_gvcf.addChild(snp_recal)
     genotype_gvcf.addChild(indel_recal)
     job.addFollowOn(apply_snp_recal)
     apply_snp_recal.addFollowOn(apply_indel_recal)
-    output_dir = os.path.join(config.output_dir)
+
+    output_dir = config.output_dir
 
     if len(gvcfs) == 1:
-        uuid, _ = gvcfs.items()[0]
+        uuid = gvcfs.keys()[0]
         output_dir = os.path.join(output_dir, uuid)
         vqsr_name = '{}.vqsr{}.vcf'.format(uuid, config.suffix)
     # Output joint recalibrated VCF

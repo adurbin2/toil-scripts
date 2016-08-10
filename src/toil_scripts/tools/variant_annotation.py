@@ -10,10 +10,11 @@ def run_oncotator(job, vcf_id, config):
     """
     Runs Oncotator on VCF file
 
-    :param job:
-    :param vcf_id:
-    :param config:
-    :return:
+    :param JobFunctionWrappingJob job: passed automatically by Toil
+    :param str vcf_id: VCF FileStoreID
+    :param Namespace config: Pipeline configuration and shared FileStoreIDs
+    :return: Annotated VCF FileStoreID
+    :rtype: str
     """
     job.fileStore.logToMaster('Running Oncotator: {}'.format(config['uuid']))
     work_dir = job.fileStore.getLocalTempDir()
@@ -41,15 +42,16 @@ def run_oncotator(job, vcf_id, config):
 
 def gatk_variant_annotator(job, bam_id, bai_id, vcf_id, annotations, config):
     """
+    Annotates a VCF file using GATK Annotations
 
     :param JobFunctionWrappingJob job: passed automatically by Toil
-    :param int cores: Maximum number of cores on a worker node
     :param str bam: Sample BAM FileStoreID
     :param str bai: Bam Index FileStoreID
     :param str gvcf_id: GVCF FileStoreID
     :param list annotations: GATK Annotations
-    :param config:
-    :return:
+    :param Namespace config: Pipeline configuration and shared FileStoreIDs
+    :return: Annotated VCF FileStoreID
+    :rtype: str
     """
     job.fileStore.logToMaster('Running GATK VariantAnnotator: {}'.format(config['uuid']))
     work_dir = job.fileStore.getLocalTempDir()

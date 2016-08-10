@@ -14,73 +14,83 @@ def generate_config():
         # Optional: Reference Genome Index URL (hg19.fa.fai)
         genome-fai:
 
-        # Optional: Reference Genome Sequence Dictionary (hg19.dict)
+        # Optional: Reference Genome Sequence Dictionary URL (hg19.dict)
         genome-dict:
 
-        # Optional: URL (1000G_phase1.indels.hg19.sites.fixed.vcf)
+        # Optional: 1000G INDELs URL (1000G_phase1.indels.hg19.sites.fixed.vcf)
         phase:
 
-        # Optional: URL (Mills_and_1000G_gold_standard.indels.hg19.sites.vcf)
+        # Optional: Mills INDELs URL (Mills_and_1000G_gold_standard.indels.hg19.sites.vcf)
         mills:
 
-        # Optional: URL (dbsnp_138.hg19.excluding_sites_after_129.vcf)
+        # Optional: dbSNP URL (dbsnp_138.hg19.excluding_sites_after_129.vcf)
         dbsnp:
 
-        # Optional: URL (hapmap_3.3.hg19.sites.vcf)
+        # Optional: HapMap URL (hapmap_3.3.hg19.sites.vcf)
         hapmap:
 
-        # Optional: URL (1000G_omni2.5.hg19.sites.vcf)
+        # Optional: Omni URL (1000G_omni2.5.hg19.sites.vcf)
         omni:
 
-        # Optional: (boolean) Run BWA on fastqs
+        # Optional: Run BWA on fastqs (Boolean)
         run-bwa:
 
-        # Optional. If true, BWA trims adapters
+        # Optional. BWA trims adapters (Boolean)
         trim: True
 
-        # Optional: Reference fasta file (amb) -- if not present will be generated
+        # Optional: BWA Index amb file
         amb:
 
-        # Optional: Reference fasta file (ann) -- If not present will be generated
+        # Optional: BWA Index ann file
         ann:
 
-        # Optional: Reference fasta file (bwt) -- If not present will be generated
+        # Optional: BWA Index bwt file
         bwt:
 
-        # Optional: Reference fasta file (pac) -- If not present will be generated
+        # Optional: BWA Index pac file
         pac:
 
-        # Optional: Reference fasta file (sa) -- If not present will be generated
+        # Optional: BWA Index sa file
         sa:
 
-        # Optional: Alternate file for reference build (alt). Necessary for alt aware alignment
+        # Optional: BWA Index alt file
         alt:
 
-        # Optional: (boolean) Run GATK Preprocessing
+        # Optional: Run GATK Preprocessing (Boolean)
         preprocess:
 
-        # Optional: (boolean) Run GATK VQSR
+        # Optional: Run GATK VQSR (Boolean)
         run-vqsr:
 
-        # Optional: (boolean) Joint Calling
+        # Optional: Joint Calling (Boolean)
         joint:
 
-        # Optional: Approximate input file size
+        # Optional: Run Oncotator (Boolean)
+        run-oncotator:
+
+        # Optional: Oncotator Database (URL)
+        oncotator-db:
+
+        # Optional: Approximate input file size (i.e. 50G)
         file-size: 50G
 
-        # Memory allocation for Java option Xmx
+        # Memory allocation for Java option Xmx (i.e. 100G)
         xmx: 100G
 
-        # Optional: (string) Suffix to be added to final output
+        # Optional: Suffix to be added to output filename (i.e. .toil)
         suffix:
 
-        # Optional: (string) Path to output directory
+        # Optional: Path to output directory (PATH/URL)
         output-dir:
 
-        # Optional: (string) Path to Key File for SSE-C Encryption
+        # Optional: Synapse username and password
+        synapse-name:
+        synapse-pwd:
+
+        # Optional: Path to key file for SSE-C Encryption
         ssec:
 
-        # Optional: (boolean) Set to True to allow seq dict incompatibility
+        # Optional: Allow seq dict incompatibility (Boolean)
         unsafe-mode:
         """[1:])
 
