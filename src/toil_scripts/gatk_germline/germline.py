@@ -594,11 +594,13 @@ def main():
                                  'ReadPosRankSumTest', 'MappingQualityRankSumTest',
                                  'RMSMappingQuality', 'InbreedingCoeff']
 
-        if inputs['synapse_name'] and inputs['synapse_pwd']:
+        if inputs.get('synapse_name', None) and inputs.get('synapse_pwd', None):
             inputs['synapse_login'] = synapseclient.login(inputs['synapse_name'],
                                                           inputs['synapse_pwd'],
                                                           rememberMe=False,
                                                           silent=True)
+        else:
+            inputs['synapse_login'] = None
 
         # It is a convention to store configuration attributes in a Namespace object
         config = argparse.Namespace(**inputs)
@@ -608,7 +610,7 @@ def main():
         shared_files.addChild(run_pipeline)
 
         if inputs['run_oncotator']:
-            annotate = Job.wrapJobFn(annotate_vcfs, run_pipeline.rv(), config)
+            annotate = Job.wrapJobFn(annotate_vcfs, run_pipeline.rv(), shared_files.rv())
             run_pipeline.addChild(annotate)
 
         Job.Runner.startToil(shared_files, options)
