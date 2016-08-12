@@ -24,18 +24,17 @@ def download_url(url, work_dir='.', name=None, synapse_login=None, s3_key_path=N
     file_path = os.path.join(work_dir, name) if name else os.path.join(work_dir, os.path.basename(url))
     if cghub_key_path:
         _download_with_genetorrent(url, file_path, cghub_key_path)
+    elif parsed_url.scheme == 's3':
+        _s3am_with_retry(num_cores=1, file_path=file_path, s3_url=url, mode='download',
+                         s3_key_path=s3_key_path)
+    elif parsed_url.scheme == 'file':
+        shutil.copy(urlparse(url).path, file_path)
     elif url.startswith('syn'):
         if synapse_login:
             stored_file = synapse_login.get(url, downloadLocation=work_dir)
             file_path = stored_file.path
         else:
             raise ValueError('Synapse login was not provided!')
-    elif parsed_url.scheme == 's3':
-        _s3am_with_retry(num_cores=1, file_path=file_path, s3_url=url, mode='download',
-
-                         s3_key_path=s3_key_path)
-    elif parsed_url.scheme == 'file':
-        shutil.copy(urlparse(url).path, file_path)
     else:
         subprocess.check_call(['curl', '-fs', '--retry', '5', '--create-dir', url, '-o', file_path])
     assert os.path.exists(file_path)

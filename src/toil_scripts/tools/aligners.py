@@ -105,7 +105,7 @@ def run_bwakit(job, config, threads, sort=True, trim=False):
     :rtype: str
     """
     work_dir = job.fileStore.getLocalTempDir()
-    file_names = ['r1.fq.gz', 'ref.fa.fai', 'ref.fa', 'ref.fa.amb', 'ref.fa.ann',
+    file_names = ['r1.fq.gz', 'ref.fa', 'ref.fa.fai', 'ref.fa.amb', 'ref.fa.ann',
                   'ref.fa.bwt', 'ref.fa.pac', 'ref.fa.sa']
     ids = [config.r1, config.ref, config.fai, config.amb, config.ann, config.bwt, config.pac, config.sa]
     # If a fastq pair was provided
@@ -144,6 +144,7 @@ def run_bwakit(job, config, threads, sort=True, trim=False):
         parameters.append('/data/r2.fq.gz')
     mock_bam = config.uuid + '.bam'
     outputs = {'aligned.aln.bam': mock_bam}
+
     docker_call(tool='quay.io/ucsc_cgl/bwakit:0.7.12--528bb9bf73099a31e74a7f5e6e3f2e0a41da486e',
                 parameters=parameters, inputs=file_names, outputs=outputs, work_dir=work_dir)
 

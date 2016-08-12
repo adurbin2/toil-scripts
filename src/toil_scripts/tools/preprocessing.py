@@ -379,6 +379,7 @@ def run_realigner_target_creator(job, cores, bam, bai, ref, ref_dict, fai, phase
                   '-o', '/data/sample.intervals']
     if unsafe:
         parameters.extend(['-U', 'ALLOW_SEQ_DICT_INCOMPATIBILITY'])
+
     docker_call(tool='quay.io/ucsc_cgl/gatk:3.5--dba6dae49156168a909c43330350c6161dc7ecc2',
                 inputs=inputs,
                 outputs={'sample.intervals': None},

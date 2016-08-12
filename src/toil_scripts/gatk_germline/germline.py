@@ -70,7 +70,8 @@ def run_gatk_germline_pipeline(job, samples, config):
                                         uuid,
                                         url,
                                         config,
-                                        rg_line=rg_line).rv()
+                                        rg_line=rg_line,
+                                        memory=config.xmx).rv()
 
     # Stop after preprocessing
     if config.preprocess_only:
@@ -83,17 +84,23 @@ def run_gatk_germline_pipeline(job, samples, config):
     if config.run_vqsr or len(gvcfs) > 30:
         # TODO split joint VCF by sample
         if config.joint:
-            filtered_vcfs['joint'] = job.addFollowOnJobFn(vqsr_pipeline, gvcfs, config).rv()
+            filtered_vcfs['joint'] = job.addFollowOnJobFn(vqsr_pipeline,
+                                                          gvcfs,
+                                                          config,
+                                                          memory=config.xmx).rv()
 
         else:
             for uuid, gvcf in gvcfs.iteritems():
                 filtered_vcfs[uuid] = job.addFollowOnJobFn(vqsr_pipeline,
-                                                           dict(uuid=gvcf), config).rv()
+                                                           dict(uuid=gvcf),
+                                                           config,
+                                                           memory=config.xmx).rv()
     else:
         for uuid, gvcf in gvcfs.iteritems():
             filtered_vcfs[uuid] = job.addFollowOnJobFn(hard_filter_pipeline,
                                                        uuid, gvcf,
-                                                       config).rv()
+                                                       config,
+                                                       memory=config.xmx).rv()
     return filtered_vcfs
 
 
@@ -206,8 +213,9 @@ def download_shared_files(job, config):
     if config.run_oncotator:
         references.add('oncotator_db')
     for name in references:
+        print(name)
         try:
-            url = getattr(config, name)
+            url = getattr(config, name, None)
             if url is None:
                 continue
             setattr(config, name, job.addChildJobFn(download_url_job,
@@ -218,7 +226,7 @@ def download_shared_files(job, config):
         except AttributeError:
             setattr(config, name, None)
         finally:
-            if getattr(config, name) is None and name not in unrequired_references:
+            if getattr(config, name, None) is None and name not in unrequired_references:
                 raise ValueError("Necessary parameter is missing:\n{}".format(name))
     return job.addFollowOnJobFn(reference_preprocessing, config).rv()
 
@@ -442,7 +450,7 @@ def parse_manifest(path_to_manifest):
     with open(path_to_manifest, 'r') as f:
         for line in f.readlines():
             if not line.isspace() and not line.startswith('#'):
-                sample = line.strip().split()
+                sample = line.strip().split(None, 2)
                 if len(sample) == 2:
                     uuid, url = sample
                     rg_line = None

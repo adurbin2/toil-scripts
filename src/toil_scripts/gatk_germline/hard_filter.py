@@ -43,6 +43,7 @@ def hard_filter_pipeline(job, uuid, gvcf_id, config):
                                 'SNP',
                                 genotype_gvcf.rv(),
                                 config,
+                                memory= config.xmx,
                                 disk=select_snps_disk)
 
     snp_filter_disk = PromisedRequirement(lambda x: 2*x.size + human2bytes('5G'),
@@ -51,6 +52,7 @@ def hard_filter_pipeline(job, uuid, gvcf_id, config):
                                'SNP',
                                select_snps.rv(),
                                config,
+                               memory= config.xmx,
                                disk=snp_filter_disk)
 
     select_indels_disk = PromisedRequirement(lambda x: 2*x.size + human2bytes('5G'),
@@ -59,6 +61,7 @@ def hard_filter_pipeline(job, uuid, gvcf_id, config):
                                   'INDEL',
                                   genotype_gvcf.rv(),
                                   config,
+                                  memory= config.xmx,
                                   disk=select_indels_disk)
 
     indel_filter_disk = PromisedRequirement(lambda x: 2*x.size + human2bytes('5G'),
@@ -67,6 +70,7 @@ def hard_filter_pipeline(job, uuid, gvcf_id, config):
                                  'INDEL',
                                  select_indels.rv(),
                                  config,
+                                 memory= config.xmx,
                                  disk=indel_filter_disk)
 
     job.addChild(genotype_gvcf)
@@ -76,8 +80,8 @@ def hard_filter_pipeline(job, uuid, gvcf_id, config):
     select_indels.addChild(indel_filter)
 
     output_dir = os.path.join(config.output_dir, uuid)
-    snp_filename = '%s_filtered_snps%s.vcf' % (uuid, config.suffix)
-    indel_filename = '%s_filtered_indels%s.vcf' % (uuid, config.suffix)
+    snp_filename = '%s.filtered_snps%s.vcf' % (uuid, config.suffix)
+    indel_filename = '%s.filtered_indels%s.vcf' % (uuid, config.suffix)
     output_snps = job.wrapJobFn(upload_or_move_job, snp_filename, snp_filter.rv(),
                                output_dir, ssec=config.ssec)
     output_indels = job.wrapJobFn(upload_or_move_job, indel_filename, indel_filter.rv(),

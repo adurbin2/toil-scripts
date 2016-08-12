@@ -83,7 +83,7 @@ def gatk_select_variants(job, mode, vcf_id, config):
 
     outputs = {output: None}
     docker_call(work_dir = work_dir,
-                env={'_JAVA_OPTIONS':'-Djava.io.tmpdir=/data/ -Xmx{}'.format(config.xmx)},
+                env={'JAVA_OPTS':'-Djava.io.tmpdir=/data/ -Xmx{}'.format(config.xmx)},
                 parameters = command,
                 tool = 'quay.io/ucsc_cgl/gatk:3.5--dba6dae49156168a909c43330350c6161dc7ecc2',
                 inputs=inputs.keys(),
@@ -137,7 +137,7 @@ def gatk_variant_filtration(job, mode, vcf_id, config):
 
     outputs = {'filtered_variants.vcf': None}
     docker_call(work_dir = work_dir,
-                env={'_JAVA_OPTIONS':'-Djava.io.tmpdir=/data/ -Xmx{}'.format(config.xmx)},
+                env={'JAVA_OPTS':'-Djava.io.tmpdir=/data/ -Xmx{}'.format(config.xmx)},
                 parameters = command,
                 tool = 'quay.io/ucsc_cgl/gatk:3.5--dba6dae49156168a909c43330350c6161dc7ecc2',
                 inputs=inputs.keys(),

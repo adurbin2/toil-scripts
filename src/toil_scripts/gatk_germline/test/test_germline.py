@@ -35,22 +35,34 @@ class GermlineTest(TestCase):
     def setUp(self):
         self.workdir = tempfile.mkdtemp()
         self.fastq_url = 's3://cgl-pipeline-inputs/germline/ci/NIST7035_NIST7086.aln21.ci.1.fq'
-        self.bam_sample = ['ci_test ', 's3://cgl-pipeline-inputs/germline/ci/NIST7035_NIST7086.aln21.ci.bam']
+        self.bam_sample = ['bam_test', 's3://cgl-pipeline-inputs/germline/ci/NIST7035_NIST7086.aln21.ci.bam']
         jobStore = os.getenv('TOIL_SCRIPTS_TEST_JOBSTORE', os.path.join(self.workdir, 'jobstore-%s' % uuid4()))
         toilOptions = shlex.split(os.environ.get('TOIL_SCRIPTS_TEST_TOIL_OPTIONS', ''))
         self.base_command = concat('toil-germline', 'run',
-                                   '--retryCount', '1',
                                    toilOptions,
                                    jobStore)
+        self.expected_files = set()
 
-    def test_samples_option(self):
+    def _test_samples_option(self):
+        self.expected_files |= {'bam_test.raw.ci_test.gvcf',
+                                'bam_test.filtered_snps.ci_test.vcf',
+                                'bam_test.filtered_indels.ci_test.vcf',
+                                'config-toil-germline-bam.yaml'}
         self._run(self.base_command, '--sample', self.bam_sample, '--config', self._generate_bam_config())
         self._assertOutput()
 
-    def _test_manifest_option(self):
-        num_samples = int(os.environ.get('TOIL_SCRIPTS_TEST_NUM_SAMPLES', '1'))
-        self._run(self.base_command, '--manifest', self._generate_manifest(num_samples))
-        self._assertOutput(num_samples)
+    def test_manifest_option(self):
+        num_samples = int(os.environ.get('TOIL_SCRIPTS_TEST_NUM_SAMPLES', '5'))
+        for i in range(1, num_samples+1):
+            self.expected_files |= {'fastq_test_%s.raw.ci_test.gvcf' % i,
+                                    'fastq_test_%s.filtered_snps.ci_test.vcf' % i,
+                                    'fastq_test_%s.filtered_indels.ci_test.vcf' % i,
+                                    'config-toil-germline-fastq.yaml',
+                                    'manifest-toil-germline.tsv'}
+
+        self._run(self.base_command, '--config', self._generate_fastq_config(),
+                  '--manifest', self._generate_manifest(num_samples))
+        self._assertOutput()
 
     def _run(self, *args):
         args = list(concat(*args))
@@ -61,7 +73,7 @@ class GermlineTest(TestCase):
         shutil.rmtree(self.workdir)
 
     def _generate_bam_config(self):
-        path = os.path.join(self.workdir, 'config-toil-germline.yaml')
+        path = os.path.join(self.workdir, 'config-toil-germline-bam.yaml')
         with open(path, 'w') as f:
             f.write(textwrap.dedent("""
                     genome-fasta: s3://cgl-pipeline-inputs/germline/ci/b37_21.fa
@@ -71,6 +83,7 @@ class GermlineTest(TestCase):
                     hapmap: s3://cgl-pipeline-inputs/germline/ci/hapmap_3.3.b37.21.recode.vcf
                     omni: s3://cgl-pipeline-inputs/germline/ci/1000G_omni2.5.b37.21.recode.vcf
                     run-bwa: False
+                    trim: False
                     preprocess: True
                     ssec:
                     file-size: 1G
@@ -89,7 +102,7 @@ class GermlineTest(TestCase):
 
 
     def _generate_fastq_config(self):
-        path = os.path.join(self.workdir, 'config-toil-germline.yaml')
+        path = os.path.join(self.workdir, 'config-toil-germline-fastq.yaml')
         with open(path, 'w') as f:
             f.write(textwrap.dedent("""
                     genome-fasta: s3://cgl-pipeline-inputs/germline/ci/b37_21.fa
@@ -99,21 +112,23 @@ class GermlineTest(TestCase):
                     hapmap: s3://cgl-pipeline-inputs/germline/ci/hapmap_3.3.b37.21.recode.vcf
                     omni: s3://cgl-pipeline-inputs/germline/ci/1000G_omni2.5.b37.21.recode.vcf
                     run-bwa: True
+                    trim: False
                     preprocess: True
                     amb: s3://cgl-pipeline-inputs/germline/ci/bwa_index_b37_21.amb
                     ann: s3://cgl-pipeline-inputs/germline/ci/bwa_index_b37_21.ann
                     bwt: s3://cgl-pipeline-inputs/germline/ci/bwa_index_b37_21.bwt
                     pac: s3://cgl-pipeline-inputs/germline/ci/bwa_index_b37_21.pac
                     sa: s3://cgl-pipeline-inputs/germline/ci/bwa_index_b37_21.sa
+                    alt:
                     ssec:
                     file-size: 1G
                     xmx: 5G
                     suffix: .ci_test
                     output-dir: {output_dir}
-                    unsafe-mode:
-                    run-vqsr:
+                    unsafe-mode: False
+                    run-vqsr: False
                     joint: False
-                    preprocess-only:
+                    preprocess-only: False
                     run-oncotator: False
                     synapse-name:
                     synapse-pwd:
@@ -123,11 +138,17 @@ class GermlineTest(TestCase):
     def _generate_manifest(self, num_samples):
         path = os.path.join(self.workdir, 'manifest-toil-germline.tsv')
         with open(path, 'w') as f:
-            f.write('\n'.join('\t'.join(['ci_test_%s' % i,
+            f.write('\n'.join(' '.join(['fastq_test_%s' % i,
                                          self.fastq_url,
-                                         '@RG\tID:foo\tSM:bar\tPL:ILLUMINA'])
-                              for i in range(num_samples)))
+                                         '@RG\\tID:foo\\tSM:bar\\tPL:ILLUMINA'])
+                              for i in range(1, num_samples+1)))
+            self.expected_files.add('fastq_test.raw.ci_test.gvcf')
         return path
 
     def _assertOutput(self):
-        print(os.listdir(self.workdir))
+        for root, dirs, files in os.walk(self.workdir, topdown=False):
+            for name in files:
+                filename = os.path.basename(name)
+                print(filename)
+                print(self.expected_files)
+                self.assertTrue(filename in self.expected_files)
